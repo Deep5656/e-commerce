@@ -1,0 +1,87 @@
+# Server Configuration
+server:
+  port: 8082 # The port this Order-Service instance will run on
+
+spring:
+  # Application Name - This is the name registered with Eureka
+  application:
+    name: Order-Service
+
+  # H2 In-Memory Database Configuration
+  datasource:
+    url: jdbc:h2:mem:testdbOrder
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: # Empty password for H2
+
+  # JPA / Hibernate Configuration
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update # Creates/updates tables automatically
+    show-sql: true # Prints SQL queries in the console
+    properties:
+      hibernate:
+        format_sql: true # Makes the printed SQL look pretty
+
+  # H2 Web Console Configuration
+  h2:
+    console:
+      enabled: true # Access at http://localhost:8082/h2-console
+      path: /h2-console
+
+  # spring kafka
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    template:
+      default-topic: notificationTopic
+    properties:
+        spring.json.add.type.headers: false    
+
+# Eureka Discovery Client Configuration
+eureka:
+  instance:
+    hostname: localhost # Force it to show 'localhost' in the dashboard
+    prefer-ip-address: false
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka # URL of the Discovery Server
+
+# Spring Boot Actuator Configuration
+management:
+  health:
+    circuitbreakers:
+      enabled: true # Adds circuit breaker status to the /actuator/health endpoint
+  endpoints:
+    web:
+      exposure:
+        include: health,circuitbreakers,circuitbreakerevents # Expose specific actuator endpoints
+  endpoint:
+    health:
+      show-details: always # Shows full health details (including circuit breaker state)
+
+# Resilience4j Configuration
+resilience4j:
+  # Circuit Breaker Configuration
+  circuitbreaker:
+    instances:
+      inventory: # This name must match the name used in the @CircuitBreaker annotation
+        registerHealthIndicator: true # Allows checking status via actuator
+        eventConsumerBufferSize: 10 # How many events to store in memory for the actuator
+        slidingWindowType: COUNT_BASED # Evaluate based on number of calls, not time
+        slidingWindowSize: 5 # Evaluate the last 5 calls
+        minimumNumberOfCalls: 5 # Need at least 5 calls before the circuit can trip
+        failureRateThreshold: 50 # If 50% of calls fail, trip the circuit to OPEN
+        waitDurationInOpenState: 10s # Stay OPEN for 10 seconds before trying HALF_OPEN
+        permittedNumberOfCallsInHalfOpenState: 3 # Let 3 calls through to test if service is back
+        automaticTransitionFromOpenToHalfOpenEnabled: true # Automatically move to HALF_OPEN
+  
+  # Retry Configuration
+  retry:
+    instances:
+      inventory: # This name must match the name used in the @Retry annotation
+        max-attempts: 3 # Total number of attempts (1 initial + 2 retries)
+        wait-duration: 2s # Wait 2 seconds between each retry
