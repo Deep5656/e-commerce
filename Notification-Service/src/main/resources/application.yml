@@ -5,14 +5,32 @@ spring:
   application:
     name: Notification-Service
 
+  # This service has no database. The parent pom puts spring-boot-starter-data-jpa +
+  # H2 on every module's classpath, so without these exclusions Boot spins up a
+  # pointless embedded datasource here (and fails startup outright if H2 is ever
+  # dropped from the parent) - taking the Kafka listener down with it.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+
   # Kafka Consumer Configuration
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: notification-group
+      client-id: notification-service
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      # Log loudly at startup if notificationTopic does not exist yet instead of
+      # sitting there silently subscribed to nothing.
+      missing-topics-fatal: false
+    admin:
+      # Don't kill the whole app if the broker is briefly unavailable at boot -
+      # but the failure is still logged, which is the point.
+      fail-fast: false
 
 eureka:
   instance:
@@ -21,3 +39,11 @@ eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka
+
+logging:
+  level:
+    com.deepweb.Notification_Service: DEBUG
+    # Makes group join / partition assignment visible, so "is my consumer alive?"
+    # is answerable from the log instead of guesswork.
+    org.springframework.kafka.listener: INFO
+    org.apache.kafka.clients.consumer.internals.ConsumerCoordinator: INFO

@@ -24,7 +24,7 @@
         <module>Order-Service</module>
         <module>Inventory-Service</module>
         <module>Notification-Service</module>
-        <module>discovery-server</module>  
+        <module>Discovery-Server</module>
         <module>Api-Gateway</module>  
     </modules>
 
@@ -104,6 +104,17 @@
 
 
     <build>
+        <!-- Declared (not just managed) so every child module is repackaged into an
+             executable fat jar. Without this the modules build a plain jar and
+             `java -jar <module>.jar` dies with "no main manifest attribute" - the app
+             never starts, which looks exactly like "the consumer isn't consuming". -->
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+
         <pluginManagement>
             <plugins>
                 <plugin>
