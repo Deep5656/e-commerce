@@ -1,4 +1,8 @@
 services:
+  # ============================================================
+  # INFRASTRUCTURE: KAFKA
+  # ============================================================
+
   kafka:
     image: apache/kafka:3.7.1
     container_name: kafka
@@ -7,13 +11,6 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      # Two broker listeners on purpose:
-      #   HOST     -> advertised as localhost:9092 for the Spring services on your machine
-      #   INTERNAL -> advertised as kafka:29092 for other containers (kafka-ui)
-      # With a single PLAINTEXT://localhost:9092 listener, kafka-ui bootstraps against
-      # kafka:9092, is told the broker lives at "localhost:9092", and then tries to reach
-      # *itself* - so the cluster shows as offline/empty in the UI even though the Spring
-      # services are talking to Kafka perfectly well.
       KAFKA_LISTENERS: HOST://0.0.0.0:9092,INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
       KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,INTERNAL://kafka:29092
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
@@ -23,11 +20,11 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      # Single-broker dev cluster: don't sit on the default 3s rebalance delay before
-      # handing partitions to the notification-group consumer.
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       CLUSTER_ID: 4L6g3nShT-eWTN21njKbZg
+    networks:
+      - ecom-net
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -39,3 +36,255 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
     depends_on:
       - kafka
+    networks:
+      - ecom-net
+
+  # ============================================================
+  # SPRING BOOT MICROSERVICES
+  # ============================================================
+
+  discovery-server:
+    build:
+      context: ./Discovery-Server
+      dockerfile: Dockerfile
+    container_name: discovery-server
+    ports:
+      - "8761:8761"
+    environment:
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=false
+      - EUREKA_CLIENT_FETCH_REGISTRY=false
+      - EUREKA_INSTANCE_HOSTNAME=discovery-server
+    restart: unless-stopped
+    networks:
+      - ecom-net
+
+  api-gateway:
+    build:
+      context: ./Api-Gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "9091:9091"
+    environment:
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://discovery-server:8761/eureka
+      - EUREKA_INSTANCE_HOSTNAME=api-gateway
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+    depends_on:
+      - discovery-server
+    restart: unless-stopped
+    networks:
+      - ecom-net
+
+  product-service:
+    build:
+      context: ./ProductService
+      dockerfile: Dockerfile
+    container_name: product-service
+    ports:
+      - "8081:8081"
+    environment:
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://discovery-server:8761/eureka
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+    depends_on:
+      - discovery-server
+    restart: unless-stopped
+    networks:
+      - ecom-net
+
+  inventory-service:
+    build:
+      context: ./Inventory-Service
+      dockerfile: Dockerfile
+    container_name: inventory-service
+    ports:
+      - "8083:8083"
+    environment:
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://discovery-server:8761/eureka
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+    depends_on:
+      - discovery-server
+    restart: unless-stopped
+    networks:
+      - ecom-net
+
+  order-service:
+    build:
+      context: ./Order-Service
+      dockerfile: Dockerfile
+    container_name: order-service
+    ports:
+      - "8082:8082"
+    environment:
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://discovery-server:8761/eureka
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      - discovery-server
+      - kafka
+      - inventory-service
+    restart: unless-stopped
+    networks:
+      - ecom-net
+
+  notification-service:
+    build:
+      context: ./Notification-Service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    ports:
+      - "8084:8084"
+    environment:
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://discovery-server:8761/eureka
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SPRING_KAFKA_CONSUMER_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      - discovery-server
+      - kafka
+    restart: unless-stopped
+    networks:
+      - ecom-net
+
+  # ============================================================
+  # MONITORING: PROMETHEUS + LOKI + PROMTAIL + GRAFANA
+  # ============================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+    networks:
+      - ecom-net
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - ecom-net
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/promtail-config.yml
+    configs:
+      - source: promtail_config
+        target: /etc/promtail/promtail-config.yml
+    depends_on:
+      - loki
+    networks:
+      - ecom-net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    configs:
+      - source: grafana_datasources
+        target: /etc/grafana/provisioning/datasources/datasources.yml
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - ecom-net
+    restart: unless-stopped
+
+# ============================================================
+# INLINE CONFIGS (no separate files needed)
+# ============================================================
+
+configs:
+  prometheus_config:
+    content: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+      scrape_configs:
+        - job_name: "discovery-server"
+          metrics_path: "/actuator/prometheus"
+          static_configs:
+            - targets: ["discovery-server:8761"]
+        - job_name: "api-gateway"
+          metrics_path: "/actuator/prometheus"
+          static_configs:
+            - targets: ["api-gateway:9091"]
+        - job_name: "product-service"
+          metrics_path: "/actuator/prometheus"
+          static_configs:
+            - targets: ["product-service:8081"]
+        - job_name: "inventory-service"
+          metrics_path: "/actuator/prometheus"
+          static_configs:
+            - targets: ["inventory-service:8083"]
+        - job_name: "order-service"
+          metrics_path: "/actuator/prometheus"
+          static_configs:
+            - targets: ["order-service:8082"]
+        - job_name: "notification-service"
+          metrics_path: "/actuator/prometheus"
+          static_configs:
+            - targets: ["notification-service:8084"]
+        - job_name: "prometheus"
+          static_configs:
+            - targets: ["localhost:9090"]
+
+  promtail_config:
+    content: |
+      server:
+        http_listen_port: 9080
+        grpc_listen_port: 0
+      positions:
+        filename: /tmp/positions.yaml
+      clients:
+        - url: http://loki:3100/loki/api/v1/push
+      scrape_configs:
+        - job_name: "docker-logs"
+          docker_sd_configs:
+            - host: unix:///var/run/docker.sock
+              filters:
+                - action: include
+                  regex: ".*"
+          relabel_configs:
+            - source_labels: ["__meta_docker_container_name"]
+              regex: '/(.*)'
+              target_label: "container_name"
+            - source_labels: ["__meta_docker_container_log_stream"]
+              target_label: "log_stream"
+            - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+              target_label: "service"
+
+  grafana_datasources:
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: true
+          editable: true
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki:3100
+          editable: true
+
+networks:
+  ecom-net:
+    driver: bridge

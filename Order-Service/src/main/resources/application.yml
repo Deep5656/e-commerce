@@ -32,14 +32,13 @@ spring:
 
   # spring kafka
   kafka:
-    bootstrap-servers: localhost:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-    template:
-      default-topic: notificationTopic
     properties:
-        spring.json.add.type.headers: false    
+      spring.json.add.type.headers: true
+
+ 
 
 # Eureka Discovery Client Configuration
 eureka:
@@ -58,7 +57,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,circuitbreakers,circuitbreakerevents # Expose specific actuator endpoints
+        include: health,circuitbreakers,circuitbreakerevents,prometheus,info
+  metrics:
+    tags:
+      application: ${spring.application.name}
   endpoint:
     health:
       show-details: always # Shows full health details (including circuit breaker state)

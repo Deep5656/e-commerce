@@ -1,0 +1,8 @@
+com\deepweb\Inventory_Service\controller\InventoryController.class
+com\deepweb\Inventory_Service\repository\InventoryRepositoy.class
+com\deepweb\Inventory_Service\dto\InventoryResponse.class
+com\deepweb\Inventory_Service\model\Inventory.class
+com\deepweb\Inventory_Service\model\Inventory$InventoryBuilder.class
+com\deepweb\Inventory_Service\dto\InventoryResponse$InventoryResponseBuilder.class
+com\deepweb\Inventory_Service\InventoryServiceApplication.class
+com\deepweb\Inventory_Service\service\InventoryService.class

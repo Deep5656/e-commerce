@@ -16,13 +16,14 @@ spring:
 
   # Kafka Consumer Configuration
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
+      bootstrap-servers: localhost:9092
       group-id: notification-group
-      client-id: notification-service
-      auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.type.mapping: event:com.deepweb.Notification_Service.event.OrderPlacedEvent
+
     listener:
       # Log loudly at startup if notificationTopic does not exist yet instead of
       # sitting there silently subscribed to nothing.
@@ -47,3 +48,14 @@ logging:
     # is answerable from the log instead of guesswork.
     org.springframework.kafka.listener: INFO
     org.apache.kafka.clients.consumer.internals.ConsumerCoordinator: INFO
+
+# Monitoring: Prometheus + Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  metrics:
+    tags:
+      application: ${spring.application.name}
+# spring.kafka.consumer.properties.spring.json.type.mapping=event:com.techie.microservices.order.event.OrderPlacedEvent
